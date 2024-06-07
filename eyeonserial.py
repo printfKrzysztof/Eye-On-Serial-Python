@@ -6,7 +6,16 @@ import serial
 import serial.tools.list_ports
 import time
 
+RX = "<-- (Rx)"
+TX = "--> (Tx)"
 class SerialPortMirrorApp:
+    def update_checkbox(self):
+        if self.enable_format_rx_only.get():
+            self.enable_timestamps.set(False)
+            self.timestamp_check.config(state=tk.DISABLED)
+        else:
+            self.timestamp_check.config(state=tk.NORMAL)
+
     def __init__(self, root):
         self.root = root
         self.root.title("Serial Port Mirror")
@@ -15,12 +24,13 @@ class SerialPortMirrorApp:
         self.real_port = tk.StringVar()
         self.virtual_port_number = tk.StringVar(value="12")
         self.log_file = tk.StringVar(value="ur_log.txt")
-        self.enable_timestamps = tk.BooleanVar(value=True)
+        self.enable_timestamps = tk.BooleanVar(value=False)
+        self.enable_format_rx_only = tk.BooleanVar(value=True)
         self.display_hex = tk.BooleanVar(value=True)  # Default to hexadecimal display
 
         self.running = False  # Flag to track if mirroring is running
         self.start_button = tk.Button(root, text="Start", command=self.toggle_mirroring)
-        self.start_button.grid(row=5, column=0, columnspan=2, pady=10)
+        self.start_button.grid(row=6, column=0, columnspan=2, pady=10)
 
         # Real port selection
         tk.Label(root, text="Real Port:").grid(row=0, column=0, padx=10, pady=10)
@@ -44,13 +54,17 @@ class SerialPortMirrorApp:
         # Enable timestamps
         self.timestamp_check = tk.Checkbutton(root, text="Enable Timestamps", variable=self.enable_timestamps)
         self.timestamp_check.grid(row=4, column=0, columnspan=2, pady=10)
+        self.timestamp_check.config(state=tk.DISABLED)
+        # Format RX Only
+        self.format_rx_only = tk.Checkbutton(root, text="RX Stream Mode", variable=self.enable_format_rx_only,command=self.update_checkbox)
+        self.format_rx_only.grid(row=5, column=0, columnspan=2, pady=10)
 
         # Display format
         self.display_format_radio_hex = tk.Radiobutton(root, text="Hexadecimal", variable=self.display_hex, value=True)
-        self.display_format_radio_hex.grid(row=6, column=0, padx=10, pady=10)
+        self.display_format_radio_hex.grid(row=7, column=0, padx=10, pady=10)
 
         self.display_format_radio_ascii = tk.Radiobutton(root, text="ASCII", variable=self.display_hex, value=False)
-        self.display_format_radio_ascii.grid(row=6, column=1, padx=10, pady=10)
+        self.display_format_radio_ascii.grid(row=7, column=1, padx=10, pady=10)
 
     def get_serial_ports(self):
         ports = serial.tools.list_ports.comports()
@@ -64,12 +78,25 @@ class SerialPortMirrorApp:
         return data.decode('ascii', errors='ignore')
 
     def log_data(self, f, direction, data):
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S") if self.enable_timestamps.get() else ""
+        # Data to Hex or Asci
         if self.display_hex.get():
             formatted_data = self.hex_format(data)
         else:
-            formatted_data = self.ascii_format(data)
-        log_entry = f"{direction} {timestamp}: {formatted_data}\n"
+            formatted_data = self.ascii_format(data)        
+        
+        # Format RX only mode.
+        if self.format_rx_only:
+            if direction == RX:
+                log_entry = f"TX({formatted_data})"
+            elif direction == TX:
+                log_entry = f"{formatted_data}"
+                pass
+            else:
+                raise Exception("Wrong way - communication!")
+        else:
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S") if self.enable_timestamps.get() else ""
+            log_entry = f"{direction} {timestamp}: {formatted_data}\n"
+        
         f.write(log_entry)
         print(log_entry)
 
@@ -84,12 +111,12 @@ class SerialPortMirrorApp:
                 while self.running:  # Continue loop while running flag is True
                     if ser.in_waiting:
                         data = ser.read(ser.in_waiting)
-                        self.log_data(f, "<-- (Rx)", data)
+                        self.log_data(f, RX, data)
                         vir.write(data)
             
                     if vir.in_waiting:
                         data = vir.read(vir.in_waiting)
-                        self.log_data(f, "--> (Tx)", data)
+                        self.log_data(f, TX, data)
                         ser.write(data)
                     
         except Exception as e:
